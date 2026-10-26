@@ -21,19 +21,28 @@ final class Arranger {
         defer { store.isApplying = false }
         store.notes = []
 
+        let rowTop = MenuBarScanner.rowTop(for: NSEvent.mouseLocation)
         divider.reveal()
         try? await Task.sleep(for: .milliseconds(700))
 
         var attempts: [String: Int] = [:]
         for _ in 0..<80 {
-            let rowTop = MenuBarScanner.rowTop(for: NSEvent.mouseLocation)
             let items = await Task.detached { MenuBarScanner.scan(preferredRowTop: rowTop) }.value
-            guard let step = nextStep(items: items, attempts: &attempts) else { break }
-            await perform(step, items: items)
+            guard let boundary = divider.liveWindow(rowTop: rowTop), boundary.frame.width < 100,
+                  let step = nextStep(items: items, dividerFrame: boundary.frame, attempts: &attempts) else { break }
+            await perform(step, boundary: boundary)
             try? await Task.sleep(for: .milliseconds(500))
         }
 
         await store.refresh()
+        let finalItems = await Task.detached { MenuBarScanner.scan(preferredRowTop: rowTop) }.value
+        if let boundary = divider.liveWindow(rowTop: rowTop), boundary.frame.width < 100 {
+            store.notes = Array(Set(finalItems.filter {
+                !$0.isPinned && (store.mode(of: $0) != .visible) != ($0.frame.midX < boundary.frame.midX)
+            }.map { String(localized: "Couldn’t move \($0.name)") })).sorted()
+        } else {
+            store.notes = [String(localized: "The menu bar changed. Try Apply again.")]
+        }
         divider.collapse()
         Log.write("apply done, notes: \(store.notes)")
     }
@@ -92,9 +101,9 @@ final class Arranger {
             .sorted { $0.frame.minX < $1.frame.minX }
     }
 
-    private func nextStep(items: [BarItem], attempts: inout [String: Int]) -> Step? {
+    private func nextStep(items: [BarItem], dividerFrame: CGRect, attempts: inout [String: Int]) -> Step? {
         let movable = reachable(items)
-        let dividerMid = divider.frame.midX
+        let dividerMid = dividerFrame.midX
         func isLeft(_ item: BarItem) -> Bool { item.frame.midX < dividerMid }
         func wantsHidden(_ item: BarItem) -> Bool { store.mode(of: item) != .visible }
 
@@ -120,8 +129,6 @@ final class Arranger {
         for item in movable where wantsHidden(item) != isLeft(item) {
             let key = "\(item.id)/\(wantsHidden(item))"
             if attempts[key, default: 0] >= 2 {
-                let note = String(localized: "Couldn’t move \(item.name)")
-                if !store.notes.contains(note) { store.notes.append(note) }
                 continue
             }
             attempts[key, default: 0] += 1
@@ -130,21 +137,17 @@ final class Arranger {
         return nil
     }
 
-    private func perform(_ step: Step, items: [BarItem]) async {
-        let y = items.first?.frame.midY ?? 15
-        let d = divider.frame
+    private func perform(_ step: Step, boundary: MenuBarWindow) async {
+        let d = boundary.frame
         switch step {
         case let .moveDivider(before, after):
-            Log.write("divider frame \(d) window \(divider.windowID)")
-            Log.write("divider -> before \(before?.name ?? "-") after \(after?.name ?? "-")")
-            let targetX = before.map { $0.frame.minX } ?? (after.map { $0.frame.maxX } ?? d.minX)
-            Log.write("drag divider from x=\(d.midX) to x=\(targetX), rowY=\(y)")
-            await ItemMover.drag(from: CGPoint(x: d.midX, y: y), to: CGPoint(x: targetX, y: y))
+            let targetX = before.map { $0.frame.minX - 1 } ?? (after.map { $0.frame.maxX + 1 } ?? d.minX)
+            Log.write("drag divider window=\(boundary.id) to x=\(targetX)")
+            await ItemMover.drag(windowID: boundary.id, to: CGPoint(x: targetX, y: d.midY))
         case let .moveItem(item, leftOfDivider):
-            Log.write("move \(item.name) -> \(leftOfDivider ? "left" : "right") of divider")
-            let targetX = leftOfDivider ? d.minX : d.maxX
-            Log.write("drag \(item.name) from \(item.frame.midX),\(item.frame.midY) to \(targetX),\(y); divider=\(d)")
-            await ItemMover.drag(from: CGPoint(x: item.frame.midX, y: item.frame.midY), to: CGPoint(x: targetX, y: y))
+            let targetX = leftOfDivider ? d.minX - 1 : d.maxX + 1
+            Log.write("drag \(item.name) id=\(item.id) window=\(item.windowID) from=\(item.frame) to x=\(targetX)")
+            await ItemMover.drag(windowID: item.windowID, to: CGPoint(x: targetX, y: d.midY))
         }
     }
 }

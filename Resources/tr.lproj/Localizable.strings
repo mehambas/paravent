@@ -55,3 +55,5 @@
 "Couldn’t check for updates. %@" = "Güncellemeler denetlenemedi. %@";
 "Not checked yet." = "Henüz denetlenmedi.";
 "Last checked: %@" = "Son denetim: %@";
+
+"The menu bar changed. Try Apply again." = "Menü çubuğu değişti. Uygula’yı yeniden dene.";

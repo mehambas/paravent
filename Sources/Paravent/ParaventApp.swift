@@ -39,6 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var divider: DividerController!
     private var arranger: Arranger!
     private var settingsWindow: NSWindow?
+    private var showingContextMenu = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary)
@@ -95,11 +96,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func mouseEntered(with event: NSEvent) {
+        guard !showingContextMenu, !store.isApplying else { return }
         panel.show(pinned: false)
     }
 
     @objc private func statusItemClicked() {
-        if NSApp.currentEvent?.type == .rightMouseUp {
+        if NSApp.currentEvent?.type == .rightMouseUp || NSApp.currentEvent?.modifierFlags.contains(.control) == true {
+            showingContextMenu = true
+            defer { showingContextMenu = false }
+            panel.hide()
             let menu = NSMenu()
             if let title = Updater.menuTitle(updater.release, updater.status) {
                 menu.addItem(withTitle: title, action: #selector(showUpdate), keyEquivalent: "").target = self
@@ -145,7 +150,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 store: store, updater: updater, selection: settingsSelection,
                 onApply: { [weak self] in
                     guard let arranger = self?.arranger else { return }
+                    self?.panel.hide()
                     Task { await arranger.apply() }
+                },
+                onReveal: { [weak self] in
+                    self?.panel.hide()
+                    self?.arranger.reveal()
+                    Task { await self?.store.refresh() }
                 }
             ))
             window.isReleasedWhenClosed = false

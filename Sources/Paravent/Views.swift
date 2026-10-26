@@ -117,10 +117,11 @@ struct SettingsView: View {
     @ObservedObject var updater: Updater
     @ObservedObject var selection: SettingsSelection
     let onApply: () -> Void
+    var onReveal: (() -> Void)? = nil
 
     var body: some View {
         TabView(selection: $selection.tab) {
-            MenuBarSettings(store: store, onApply: onApply)
+            MenuBarSettings(store: store, onApply: onApply, onReveal: onReveal)
                 .tabItem { Text("Menu Bar") }
                 .tag(SettingsTab.menuBar)
             GeneralSettings(updater: updater)
@@ -135,6 +136,7 @@ struct SettingsView: View {
 private struct MenuBarSettings: View {
     @ObservedObject var store: Store
     let onApply: () -> Void
+    var onReveal: (() -> Void)? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -193,6 +195,10 @@ private struct MenuBarSettings: View {
                     ForEach(store.notes, id: \.self) { Text($0).font(.caption).foregroundStyle(.orange) }
                 }
                 Spacer()
+                if let onReveal {
+                    Button("Show Hidden Icons", action: onReveal)
+                        .disabled(store.isApplying)
+                }
                 Button("Apply", action: onApply)
                     .keyboardShortcut(.defaultAction)
                     .disabled(store.isApplying)

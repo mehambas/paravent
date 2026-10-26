@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import ParaventCore
 
 final class AXBox: @unchecked Sendable {
     let element: AXUIElement
@@ -85,14 +86,19 @@ enum MenuBarScanner {
         var items: [BarItem] = []
 
         for win in primary {
+            let windowOwner = NSRunningApplication(processIdentifier: win.pid)
+            let systemHost = windowOwner?.bundleIdentifier == "com.apple.controlcenter"
             let match = extras.enumerated()
-                .filter { $0.element.frame.width > 0 && abs($0.element.frame.midY - win.frame.midY) < 30 }
+                .filter { MenuBarMatch.accepts(window: win.frame, button: $0.element.frame,
+                    sameOwner: $0.element.app.processIdentifier == win.pid, systemHost: systemHost) }
                 .map { (index: $0.offset, distance: abs($0.element.frame.midX - win.frame.midX)) }
                 .filter { $0.distance < 14 }
                 .min { $0.distance < $1.distance }
                 .map { extras.remove(at: $0.index) }
 
-            let owner = match?.app ?? NSRunningApplication(processIdentifier: win.pid)
+            // Unknown non-system overlays are not status items, even when menu-bar high.
+            guard match != nil || systemHost else { continue }
+            let owner = match?.app ?? windowOwner
             let bundle = owner?.bundleIdentifier ?? "pid.\(win.pid)"
             let genericTitle = win.title.isEmpty || win.title.hasPrefix("Item-")
             if match == nil, win.frame.width > 120, bundle != "com.apple.controlcenter" { continue }

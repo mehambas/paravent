@@ -21,6 +21,18 @@ final class DividerController {
     var frame: CGRect { item.button?.window?.frame ?? .zero }
     var windowID: CGWindowID { CGWindowID(truncatingIfNeeded: max(0, item.button?.window?.windowNumber ?? 0)) }
 
+    // On modern macOS Control Center hosts the actual status-item window;
+    // button.window.windowNumber can be zero and uses a different coordinate space.
+    func liveWindow(rowTop: Int?) -> MenuBarWindow? {
+        let windows = CGWindowListCopyWindowInfo(.optionAll, kCGNullWindowID) as? [[String: Any]] ?? []
+        return windows.compactMap { info -> MenuBarWindow? in
+            guard info[kCGWindowName as String] as? String == "paravent.divider",
+                  let window = MenuBarWindow.read(info),
+                  rowTop.map({ Int(window.frame.minY.rounded()) == $0 }) ?? true else { return nil }
+            return window
+        }.first
+    }
+
     func collapse() {
         collapsed = true
         item.button?.image = nil
